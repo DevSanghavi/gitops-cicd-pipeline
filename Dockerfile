@@ -2,7 +2,7 @@ FROM node:18-alpine AS deps
 WORKDIR /app
 COPY package.json package-lock.json ./
 # Ensure node_modules directory always exists so copying never fails
-RUN mkdir -p node_modules && npm ci --omit=dev || true
+RUN mkdir -p node_modules && npm ci --omit=dev
 
 FROM node:18-alpine AS runtime
 ENV NODE_ENV=production
