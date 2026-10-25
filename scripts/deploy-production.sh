@@ -20,14 +20,30 @@ for attempt in 1 2 3 4 5; do
   sleep 2
 done
 
-docker exec "$NGINX_CONTAINER" sh -c 'cp /etc/nginx/conf.d/default.conf /tmp/default.conf.project1-backup 2>/dev/null || true'
-docker cp nginx/production.conf "$NGINX_CONTAINER":/tmp/production.conf
-docker exec "$NGINX_CONTAINER" sh -c 'cat /tmp/production.conf > /etc/nginx/conf.d/default.conf'
-docker exec "$NGINX_CONTAINER" nginx -t
+# Project 1 mounts default.conf read-only, so write to the host source file instead.
+CONF_SRC="$(docker inspect "$NGINX_CONTAINER" --format '{{range .Mounts}}{{if eq .Destination "/etc/nginx/conf.d/default.conf"}}{{.Source}}{{end}}{{end}}')"
+if [ -z "$CONF_SRC" ]; then
+  CONF_DIR="$(docker inspect "$NGINX_CONTAINER" --format '{{range .Mounts}}{{if eq .Destination "/etc/nginx/conf.d"}}{{.Source}}{{end}}{{end}}')"
+  [ -n "$CONF_DIR" ] && CONF_SRC="$CONF_DIR/default.conf"
+fi
+[ -n "$CONF_SRC" ] || { echo "FAIL: cannot locate Nginx config mount"; exit 1; }
+echo "Nginx config source on host: $CONF_SRC"
+
+# Keep the original Project 1 config once, never overwrite the backup.
+[ -f "$CONF_SRC.project1-backup" ] || sudo cp -p "$CONF_SRC" "$CONF_SRC.project1-backup"
+
+# tee writes in place (same inode), so the bind mount sees the change.
+sudo tee "$CONF_SRC" < nginx/production.conf > /dev/null
+
+if ! docker exec "$NGINX_CONTAINER" nginx -t; then
+  echo "FAIL: nginx config invalid, restoring Project 1 config"
+  sudo tee "$CONF_SRC" < "$CONF_SRC.project1-backup" > /dev/null
+  exit 1
+fi
 docker exec "$NGINX_CONTAINER" nginx -s reload
 
 for attempt in 1 2 3 4 5 6 7 8 9 10; do
-  if wget -qO- http://127.0.0.1:80/health | grep -q '"environment":"production"'; then
+  if curl -fsS http://127.0.0.1:80/health | grep -q '"environment":"production"'; then
     echo "PASS: production health check through Nginx"
     exit 0
   fi
