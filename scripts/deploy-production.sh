@@ -20,9 +20,9 @@ for attempt in 1 2 3 4 5; do
   sleep 2
 done
 
-docker exec "$NGINX_CONTAINER" sh -c 'cp /etc/nginx/conf.d/default.conf /tmp/default.conf.project1-backup'
+docker exec "$NGINX_CONTAINER" sh -c 'cp /etc/nginx/conf.d/default.conf /tmp/default.conf.project1-backup 2>/dev/null || true'
 docker cp nginx/production.conf "$NGINX_CONTAINER":/tmp/production.conf
-docker exec "$NGINX_CONTAINER" sh -c 'cat /tmp/production.conf > /etc/nginx/conf.d/default.conf && rm -f /tmp/production.conf'
+docker exec "$NGINX_CONTAINER" sh -c 'rm -f /etc/nginx/conf.d/default.conf && cp /tmp/production.conf /etc/nginx/conf.d/default.conf'
 docker exec "$NGINX_CONTAINER" nginx -t
 docker exec "$NGINX_CONTAINER" nginx -s reload
 
