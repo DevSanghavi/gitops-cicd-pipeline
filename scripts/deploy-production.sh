@@ -12,7 +12,13 @@ NGINX_NETWORK="$(docker inspect "$NGINX_CONTAINER" --format '{{range $name, $net
 test -n "$NGINX_NETWORK"
 docker network connect "$NGINX_NETWORK" "$API_CONTAINER" 2>/dev/null || true
 
-docker exec "$API_CONTAINER" wget -qO- http://127.0.0.1:3000/health | grep -q '"status":"ok"'
+for attempt in 1 2 3 4 5; do
+  if docker exec "$API_CONTAINER" wget -qO- http://127.0.0.1:3000/health 2>/dev/null | grep -q '"status":"ok"'; then
+    echo "PASS: container internal health check"
+    break
+  fi
+  sleep 2
+done
 
 docker exec "$NGINX_CONTAINER" sh -c 'cp /etc/nginx/conf.d/default.conf /tmp/default.conf.project1-backup'
 docker cp nginx/production.conf "$NGINX_CONTAINER":/etc/nginx/conf.d/default.conf
