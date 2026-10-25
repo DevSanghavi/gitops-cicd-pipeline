@@ -21,7 +21,8 @@ for attempt in 1 2 3 4 5; do
 done
 
 docker exec "$NGINX_CONTAINER" sh -c 'cp /etc/nginx/conf.d/default.conf /tmp/default.conf.project1-backup'
-docker cp nginx/production.conf "$NGINX_CONTAINER":/etc/nginx/conf.d/default.conf
+docker cp nginx/production.conf "$NGINX_CONTAINER":/tmp/production.conf
+docker exec "$NGINX_CONTAINER" sh -c 'mv /tmp/production.conf /etc/nginx/conf.d/default.conf'
 docker exec "$NGINX_CONTAINER" nginx -t
 docker exec "$NGINX_CONTAINER" nginx -s reload
 
