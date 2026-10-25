@@ -1,0 +1,69 @@
+name: Deploy Production
+
+on:
+  push:
+    branches:
+      - main
+
+concurrency:
+  group: production-deployment
+  cancel-in-progress: false
+
+permissions:
+  contents: read
+  packages: read
+
+jobs:
+  deploy-production:
+    name: Promote Staging Digest to Production
+    runs-on: ubuntu-latest
+    env:
+      EC2_INSTANCE_ID: ${{ vars.EC2_INSTANCE_ID }}
+      EC2_PUBLIC_IP: ${{ vars.EC2_PUBLIC_IP }}
+      EC2_SECURITY_GROUP_ID: ${{ vars.EC2_SECURITY_GROUP_ID }}
+    steps:
+      - uses: actions/checkout@v4
+      - name: Read promoted digest
+        run: |
+          PRODUCTION_DIGEST="$(grep -Eo 'sha256:[a-f0-9]{64}' deploy/production.env | head -1)"
+          test -n "$PRODUCTION_DIGEST"
+          echo "PRODUCTION_IMAGE=ghcr.io/devsanghavi/gitops-cicd-pipeline@$PRODUCTION_DIGEST" >> "$GITHUB_ENV"
+      - name: Verify staging endpoint before promotion
+        run: curl -fsS "http://$EC2_PUBLIC_IP:8080/health" | grep -q '"status":"ok"'
+      - uses: aws-actions/configure-aws-credentials@v4
+        with:
+          aws-access-key-id: ${{ secrets.AWS_ACCESS_KEY_ID }}
+          aws-secret-access-key: ${{ secrets.AWS_SECRET_ACCESS_KEY }}
+          aws-region: us-east-1
+      - name: Authorize temporary runner SSH access
+        run: |
+          RUNNER_IP="$(curl -fsS https://checkip.amazonaws.com)"
+          echo "RUNNER_IP=$RUNNER_IP" >> "$GITHUB_ENV"
+          aws ec2 authorize-security-group-ingress --group-id "$EC2_SECURITY_GROUP_ID" --protocol tcp --port 22 --cidr "$RUNNER_IP/32"
+      - name: Authorize EC2 Instance Connect key
+        run: |
+          ssh-keygen -t ed25519 -f production-key -N ""
+          aws ec2-instance-connect send-ssh-public-key --instance-id "$EC2_INSTANCE_ID" --instance-os-user ubuntu --ssh-public-key "file://production-key.pub" --availability-zone us-east-1a
+      - name: Copy production deployment files
+        run: |
+          scp -i production-key -o StrictHostKeyChecking=accept-new compose/production.yml nginx/production.conf scripts/deploy-production.sh ubuntu@"$EC2_PUBLIC_IP":/tmp/
+          ssh -i production-key -o StrictHostKeyChecking=accept-new ubuntu@"$EC2_PUBLIC_IP" 'mkdir -p ~/gitops-cicd-pipeline/compose ~/gitops-cicd-pipeline/nginx ~/gitops-cicd-pipeline/scripts && mv /tmp/production.yml ~/gitops-cicd-pipeline/compose/ && mv /tmp/production.conf ~/gitops-cicd-pipeline/nginx/ && mv /tmp/deploy-production.sh ~/gitops-cicd-pipeline/scripts/ && chmod +x ~/gitops-cicd-pipeline/scripts/deploy-production.sh'
+      - name: Deploy promoted digest
+        env:
+          GHCR_USERNAME: ${{ github.actor }}
+          GHCR_TOKEN: ${{ secrets.GHCR_TOKEN }}
+        run: |
+          printf 'PRODUCTION_IMAGE=%s\nGHCR_USERNAME=%s\nGHCR_TOKEN=%s\n' "$PRODUCTION_IMAGE" "$GHCR_USERNAME" "$GHCR_TOKEN" | ssh -i production-key -o StrictHostKeyChecking=accept-new ubuntu@"$EC2_PUBLIC_IP" 'cat > /tmp/project2-production.env && cd ~/gitops-cicd-pipeline && set -a && . /tmp/project2-production.env && set +a && bash scripts/deploy-production.sh && rm -f /tmp/project2-production.env'
+      - name: Verify public production endpoint
+        run: |
+          for attempt in 1 2 3 4 5; do
+            if curl -fsS "http://$EC2_PUBLIC_IP/health" | grep -q '"environment":"production"'; then
+              echo "PASS: public production /health through Nginx"
+              exit 0
+            fi
+            sleep 5
+          done
+          exit 1
+      - name: Revoke temporary SSH access
+        if: always()
+        run: aws ec2 revoke-security-group-ingress --group-id "$EC2_SECURITY_GROUP_ID" --protocol tcp --port 22 --cidr "$RUNNER_IP/32"
