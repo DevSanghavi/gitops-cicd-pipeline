@@ -1,0 +1,16 @@
+services:
+  api:
+    image: ${PRODUCTION_IMAGE}
+    container_name: project2-production-api
+    restart: unless-stopped
+    environment:
+      APP_ENV: production
+      PORT: 3000
+    expose:
+      - "3000"
+    healthcheck:
+      test: ["CMD", "wget", "-qO-", "http://127.0.0.1:3000/health"]
+      interval: 15s
+      timeout: 3s
+      retries: 3
+      start_period: 5s
