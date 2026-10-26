@@ -1,18 +1,21 @@
-FROM node:18-alpine AS deps
+FROM node:22-bookworm-slim AS deps
 WORKDIR /app
+RUN apt-get update && apt-get install -y python3 make g++ && rm -rf /var/lib/apt/lists/*
 COPY package.json package-lock.json ./
-# Ensure node_modules directory always exists so copying never fails
-RUN mkdir -p node_modules && npm ci --omit=dev
+RUN npm ci --omit=dev && mkdir -p node_modules
 
-FROM node:18-alpine AS runtime
+FROM node:22-bookworm-slim AS runtime
 ENV NODE_ENV=production
 ENV PORT=3000
+ENV DB_PATH=/data/app.db
 WORKDIR /app
 COPY --from=deps /app/node_modules ./node_modules
 COPY package.json package-lock.json ./
 COPY src ./src
-RUN addgroup -S app && adduser -S app -G app && chown -R app:app /app
-USER app
+COPY scripts ./scripts
+COPY migrations ./migrations
+RUN mkdir -p /data && chown -R node:node /app /data
+USER node
 EXPOSE 3000
-HEALTHCHECK --interval=15s --timeout=3s --start-period=5s --retries=3 CMD wget -qO- http://127.0.0.1:3000/health || exit 1
+HEALTHCHECK --interval=15s --timeout=5s --start-period=10s --retries=3 CMD node -e "fetch('http://127.0.0.1:3000/health').then((response) => process.exit(response.ok ? 0 : 1)).catch(() => process.exit(1))"
 CMD ["node", "src/server.js"]

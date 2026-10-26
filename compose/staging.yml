@@ -1,16 +1,36 @@
 services:
+  migration:
+    image: ${STAGING_IMAGE}
+    container_name: project2-staging-migration
+    command: ["node", "scripts/migrate.js"]
+    environment:
+      DB_PATH: /data/app.db
+    volumes:
+      - project2-staging-data:/data
+    restart: "no"
+
   api:
     image: ${STAGING_IMAGE}
     container_name: project2-staging-api
-    restart: unless-stopped
+    depends_on:
+      migration:
+        condition: service_completed_successfully
     environment:
       APP_ENV: staging
       PORT: 3000
+      DB_PATH: /data/app.db
+      IMAGE_DIGEST: ${STAGING_IMAGE}
     ports:
       - "8080:3000"
+    volumes:
+      - project2-staging-data:/data
+    restart: unless-stopped
     healthcheck:
-      test: ["CMD", "wget", "-qO-", "http://127.0.0.1:3000/health"]
+      test: ["CMD", "node", "-e", "fetch('http://127.0.0.1:3000/health').then((response) => process.exit(response.ok ? 0 : 1)).catch(() => process.exit(1))"]
       interval: 15s
-      timeout: 3s
+      timeout: 5s
       retries: 3
-      start_period: 5s
+      start_period: 10s
+
+volumes:
+  project2-staging-data:
