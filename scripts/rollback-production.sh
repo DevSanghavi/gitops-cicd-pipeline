@@ -5,10 +5,10 @@ set -euo pipefail
 : "${GHCR_USERNAME:?GHCR_USERNAME is required}"
 : "${GHCR_TOKEN:?GHCR_TOKEN is required}"
 
-case "$ROLLBACK_IMAGE" in
-  sha256:[a-f0-9]{64}) ;;
-  *) echo "FAIL: ROLLBACK_IMAGE must be a sha256 digest"; exit 1 ;;
-esac
+if [[ ! "$ROLLBACK_IMAGE" =~ ^sha256:[a-f0-9]{64}$ ]]; then
+  echo "FAIL: ROLLBACK_IMAGE must be a sha256 digest"
+  exit 1
+fi
 
 printf '%s' "$GHCR_TOKEN" | docker login ghcr.io -u "$GHCR_USERNAME" --password-stdin
 PRODUCTION_IMAGE="ghcr.io/devsanghavi/gitops-cicd-pipeline@$ROLLBACK_IMAGE"
