@@ -1,0 +1,68 @@
+name: Rollback Production
+
+on:
+  workflow_dispatch:
+    inputs:
+      rollback_digest:
+        description: Previous good production image digest
+        required: true
+        type: string
+
+concurrency:
+  group: production-deployment
+  cancel-in-progress: false
+
+permissions:
+  contents: read
+  packages: read
+
+jobs:
+  rollback:
+    name: Restore Last Good Production Digest
+    runs-on: ubuntu-latest
+    env:
+      EC2_INSTANCE_ID: ${{ vars.EC2_INSTANCE_ID }}
+      EC2_PUBLIC_IP: ${{ vars.EC2_PUBLIC_IP }}
+      EC2_SECURITY_GROUP_ID: ${{ vars.EC2_SECURITY_GROUP_ID }}
+      ROLLBACK_IMAGE: ${{ inputs.rollback_digest }}
+    steps:
+      - uses: actions/checkout@v4
+      - uses: aws-actions/configure-aws-credentials@v4
+        with:
+          aws-access-key-id: ${{ secrets.AWS_ACCESS_KEY_ID }}
+          aws-secret-access-key: ${{ secrets.AWS_SECRET_ACCESS_KEY }}
+          aws-region: us-east-1
+      - name: Validate rollback digest
+        run: '[[ "$ROLLBACK_IMAGE" =~ ^sha256:[a-f0-9]{64}$ ]]'
+      - name: Authorize temporary runner SSH access
+        run: |
+          RUNNER_IP="$(curl -fsS https://checkip.amazonaws.com)"
+          echo "RUNNER_IP=$RUNNER_IP" >> "$GITHUB_ENV"
+          aws ec2 authorize-security-group-ingress --group-id "$EC2_SECURITY_GROUP_ID" --protocol tcp --port 22 --cidr "$RUNNER_IP/32"
+      - name: Authorize EC2 Instance Connect key
+        run: |
+          ssh-keygen -t ed25519 -f rollback-key -N ""
+          aws ec2-instance-connect send-ssh-public-key --instance-id "$EC2_INSTANCE_ID" --instance-os-user ubuntu --ssh-public-key "file://rollback-key.pub" --availability-zone us-east-1a
+      - name: Copy rollback files
+        run: |
+          scp -i rollback-key -o StrictHostKeyChecking=accept-new compose/production.yml scripts/rollback-production.sh ubuntu@"$EC2_PUBLIC_IP":/tmp/
+          ssh -i rollback-key -o StrictHostKeyChecking=accept-new ubuntu@"$EC2_PUBLIC_IP" 'mkdir -p ~/gitops-cicd-pipeline/compose ~/gitops-cicd-pipeline/scripts && mv /tmp/production.yml ~/gitops-cicd-pipeline/compose/ && mv /tmp/rollback-production.sh ~/gitops-cicd-pipeline/scripts/ && chmod +x ~/gitops-cicd-pipeline/scripts/rollback-production.sh'
+      - name: Restore previous digest
+        env:
+          GHCR_USERNAME: ${{ github.actor }}
+          GHCR_TOKEN: ${{ secrets.GHCR_TOKEN }}
+        run: |
+          printf 'ROLLBACK_IMAGE=%s\nGHCR_USERNAME=%s\nGHCR_TOKEN=%s\n' "$ROLLBACK_IMAGE" "$GHCR_USERNAME" "$GHCR_TOKEN" | ssh -i rollback-key -o StrictHostKeyChecking=accept-new ubuntu@"$EC2_PUBLIC_IP" 'cat > /tmp/project2-rollback.env && cd ~/gitops-cicd-pipeline && set -a && . /tmp/project2-rollback.env && set +a && bash scripts/rollback-production.sh && rm -f /tmp/project2-rollback.env'
+      - name: Verify restored production endpoint
+        run: |
+          for attempt in 1 2 3 4 5 6; do
+            if curl -fsS "http://$EC2_PUBLIC_IP/health" | grep -q "$ROLLBACK_IMAGE"; then
+              echo "PASS: production restored to $ROLLBACK_IMAGE"
+              exit 0
+            fi
+            sleep 5
+          done
+          exit 1
+      - name: Revoke temporary SSH access
+        if: always()
+        run: aws ec2 revoke-security-group-ingress --group-id "$EC2_SECURITY_GROUP_ID" --protocol tcp --port 22 --cidr "$RUNNER_IP/32"
