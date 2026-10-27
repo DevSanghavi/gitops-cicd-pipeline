@@ -52,7 +52,9 @@ jobs:
           GHCR_USERNAME: ${{ github.actor }}
           GHCR_TOKEN: ${{ secrets.GHCR_TOKEN }}
         run: |
-          printf 'ROLLBACK_IMAGE=%s\nGHCR_USERNAME=%s\nGHCR_TOKEN=%s\n' "$ROLLBACK_IMAGE" "$GHCR_USERNAME" "$GHCR_TOKEN" | ssh -i rollback-key -o StrictHostKeyChecking=accept-new ubuntu@"$EC2_PUBLIC_IP" 'cat > /tmp/project2-rollback.env && cd ~/gitops-cicd-pipeline && set -a && . /tmp/project2-rollback.env && set +a && bash scripts/rollback-production.sh && rm -f /tmp/project2-rollback.env'
+          ssh -i rollback-key -o StrictHostKeyChecking=accept-new ubuntu@"$EC2_PUBLIC_IP" \
+            "export ROLLBACK_IMAGE='$ROLLBACK_IMAGE' GHCR_USERNAME='$GHCR_USERNAME' GHCR_TOKEN='$GHCR_TOKEN'; \
+             cd ~/gitops-cicd-pipeline && bash scripts/rollback-production.sh"
       - name: Verify restored production endpoint
         run: |
           for attempt in 1 2 3 4 5 6; do
