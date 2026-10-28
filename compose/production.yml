@@ -36,7 +36,7 @@ services:
       options:
         awslogs-group: /gitops-cicd-pipeline/production
         awslogs-region: us-east-1
-        awslogs-stream-prefix: project2-production-api
+        tag: project2-production-api
     healthcheck:
       test: ["CMD", "node", "-e", "fetch('http://127.0.0.1:3000/health').then((response) => process.exit(response.ok ? 0 : 1)).catch(() => process.exit(1))"]
       interval: 15s
