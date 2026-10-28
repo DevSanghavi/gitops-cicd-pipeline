@@ -8,6 +8,12 @@ services:
     volumes:
       - project2-staging-data:/data
     restart: "no"
+    logging:
+      driver: awslogs
+      options:
+        awslogs-group: /gitops-cicd-pipeline/staging
+        awslogs-region: us-east-1
+        awslogs-stream-prefix: project2-staging-migration
 
   api:
     image: ${STAGING_IMAGE}
@@ -25,6 +31,12 @@ services:
     volumes:
       - project2-staging-data:/data
     restart: unless-stopped
+    logging:
+      driver: awslogs
+      options:
+        awslogs-group: /gitops-cicd-pipeline/staging
+        awslogs-region: us-east-1
+        awslogs-stream-prefix: project2-staging-api
     healthcheck:
       test: ["CMD", "node", "-e", "fetch('http://127.0.0.1:3000/health').then((response) => process.exit(response.ok ? 0 : 1)).catch(() => process.exit(1))"]
       interval: 15s
