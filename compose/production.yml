@@ -13,7 +13,7 @@ services:
       options:
         awslogs-group: /gitops-cicd-pipeline/production
         awslogs-region: us-east-1
-        awslogs-stream-prefix: project2-production-migration
+        tag: project2-production-migration
 
   api:
     image: ${PRODUCTION_IMAGE}

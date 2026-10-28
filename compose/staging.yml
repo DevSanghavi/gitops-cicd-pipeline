@@ -13,7 +13,7 @@ services:
       options:
         awslogs-group: /gitops-cicd-pipeline/staging
         awslogs-region: us-east-1
-        awslogs-stream-prefix: project2-staging-migration
+        tag: project2-staging-migration
 
   api:
     image: ${STAGING_IMAGE}
