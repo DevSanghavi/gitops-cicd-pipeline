@@ -67,3 +67,17 @@ jobs:
       - name: Revoke temporary SSH access
         if: always()
         run: aws ec2 revoke-security-group-ingress --group-id "$EC2_SECURITY_GROUP_ID" --protocol tcp --port 22 --cidr "$RUNNER_IP/32"
+
+  notify-failure:
+    name: Notify Pipeline Failure
+    runs-on: ubuntu-latest
+    needs: [deploy-production]
+    if: failure()
+    steps:
+      - uses: aws-actions/configure-aws-credentials@v4
+        with:
+          aws-access-key-id: ${{ secrets.AWS_ACCESS_KEY_ID }}
+          aws-secret-access-key: ${{ secrets.AWS_SECRET_ACCESS_KEY }}
+          aws-region: us-east-1
+      - run: |
+          aws sns publish --topic-arn "${{ vars.SNS_TOPIC_ARN }}" --subject "Deployment failed: ${{ github.workflow }}" --message "Repository: ${{ github.repository }}\nWorkflow: ${{ github.workflow }}\nRun: ${{ github.server_url }}/{{ github.repository }}/actions/runs/${{ github.run_id }}\nBranch: ${{ github.ref_name }}\nResult: failure"
